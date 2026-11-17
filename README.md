@@ -3,15 +3,18 @@
 Control your Android phone from the terminal in plain English. You type what you want, [Cactus Needle 3](https://cactuscompute.com/needle) picks the right action, and PocketPilot runs it over adb.
 
 ```
+❯ battery status
+→ battery_status()  (confidence 0.83)
+✓ Battery 79%, charging
+❯ set brightness to 40%
+→ set_brightness_percent(percent=40)  (confidence 0.92)
+✓ Brightness set to 40%
 ❯ dim the screen
-→ dim_screen()  (confidence 0.49)
+? Not sure. Run set_brightness_percent(percent=30)? [Y/n] y
 ✓ Brightness set to 30%
-❯ make an album called Goa from last weekend
-→ make_album(name='Goa', period='last weekend')
-✓ Album 'Goa' made with 42 items in Pictures/Goa
-❯ find the lease in my files
-✓ Found 1:
-  /sdcard/Download/lease_2026.pdf
+❯ write me a poem
+? Not sure. Run open_file(query='poem')? [Y/n] n
+skipped
 ```
 
 Needle 3 is a 29 MB tool-calling model. It runs locally on your computer, takes about 140 MB of RAM, and needs no API key or internet after the first download.
