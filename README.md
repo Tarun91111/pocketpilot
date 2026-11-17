@@ -48,6 +48,14 @@ pocketpilot
 
 The first run downloads Needle 3 (about 30 MB). You can also run a single command with `pocketpilot turn off wifi`.
 
+### Run the model on the phone
+
+```sh
+pocketpilot --on-phone
+```
+
+This runs Needle 3 on the phone's own CPU instead of your computer, using Cactus's native Android runner. The first run copies the runner (1.5 MB) and the model (35 MB) to `/data/local/tmp/pocketpilot`. Each start runs the model as a local server on the phone and forwards it over adb. It uses about 75 MB of RAM and answers in roughly 2 seconds on a Galaxy M34. The server stops when you quit. Needs an arm64 phone.
+
 Wireless works too: `adb tcpip 5555`, then `adb connect <phone-ip>:5555`.
 
 ## How it works

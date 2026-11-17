@@ -94,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-y", "--yes", action="store_true",
                    help="run low-confidence calls without asking")
     p.add_argument("--debug", action="store_true", help="print raw model output")
+    p.add_argument("--on-phone", action="store_true",
+                   help="run Needle 3 on the phone's CPU instead of this computer")
     p.add_argument("--version", action="version", version=f"pocketpilot {__version__}")
     a = p.parse_args(argv)
 
@@ -118,13 +120,20 @@ def main(argv: list[str] | None = None) -> int:
 
     system = ("You control an Android phone. Pick the tools that do what the user asks. "
               "If no tool fits, call none.")
-    with cactus.Cactus(tools=ALL_TOOLS, system=system, stateless=True) as agent:
+    if a.on_phone:
+        from .phone_model import PhoneNeedle
+        engine = PhoneNeedle(ALL_TOOLS)
+        where = "Needle 3 running on the phone"
+    else:
+        engine = cactus.Cactus(tools=ALL_TOOLS, system=system, stateless=True)
+        where = "Needle 3 on this computer"
+    with engine as agent:
         if a.command:
             handle(agent, " ".join(a.command), by_name, state)
             return 0
 
         print(f"{BOLD}PocketPilot {__version__}{RESET} · {model} ({serial}) · "
-              f"Needle 3 on-device · /help")
+              f"{where} · /help")
         while True:
             try:
                 text = input(f"{BOLD}❯ {RESET}").strip()
