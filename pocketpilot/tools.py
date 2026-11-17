@@ -10,7 +10,24 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import cactus
+try:
+    from cactus import tool
+except ImportError:  # Termux: no cactus wheel for Android, build the schema ourselves
+    import inspect
+    import typing
+
+    def tool(fn):
+        hints = typing.get_type_hints(fn)
+        types = {int: "integer", float: "number", bool: "boolean", str: "string"}
+        props, required = {}, []
+        for name, p in inspect.signature(fn).parameters.items():
+            props[name] = {"type": types.get(hints.get(name, str), "string")}
+            if p.default is inspect.Parameter.empty:
+                required.append(name)
+        fn._cactus_tool = {"name": fn.__name__, "description": inspect.getdoc(fn) or "",
+                           "parameters": {"type": "object", "properties": props,
+                                          "required": required}}
+        return fn
 
 from .adb import adb, sh
 from .periods import parse_period
@@ -33,46 +50,46 @@ def _current_brightness_pct() -> int:
 
 # --- screen ------------------------------------------------------------------
 
-@cactus.tool
+@tool
 def dim_screen():
     "Dim the screen, lower the brightness, make it darker."
     return _brightness(max(5, _current_brightness_pct() - 30))
 
 
-@cactus.tool
+@tool
 def brighten_screen():
     "Make the screen brighter, raise the brightness."
     return _brightness(min(100, _current_brightness_pct() + 30))
 
 
-@cactus.tool
+@tool
 def set_brightness_percent(percent: int):
     "Set screen brightness to an exact percent the user says, 0 to 100."
     return _brightness(percent)
 
 
-@cactus.tool
+@tool
 def auto_brightness(enabled: bool):
     "Turn adaptive (automatic) brightness on or off."
     sh("settings", "put", "system", "screen_brightness_mode", "1" if enabled else "0")
     return f"Auto brightness {'on' if enabled else 'off'}"
 
 
-@cactus.tool
+@tool
 def lock_screen():
     "Lock the phone, turn the screen off."
     sh("input", "keyevent", "223")
     return "Screen locked"
 
 
-@cactus.tool
+@tool
 def wake_screen():
     "Wake the phone, turn the screen on."
     sh("input", "keyevent", "224")
     return "Screen on"
 
 
-@cactus.tool
+@tool
 def take_screenshot():
     "Take a screenshot of the phone and save it on the computer."
     name = datetime.now().strftime("screenshot_%Y%m%d_%H%M%S.png")
@@ -83,7 +100,7 @@ def take_screenshot():
 
 # --- sound & media -------------------------------------------------------------
 
-@cactus.tool
+@tool
 def set_volume_percent(percent: int):
     "Set the media/music volume to a percent, 0 to 100."
     out = sh("cmd", "media_session", "volume", "--stream", "3", "--get")
@@ -96,42 +113,42 @@ def set_volume_percent(percent: int):
     return f"Volume set to {percent}%"
 
 
-@cactus.tool
+@tool
 def volume_up():
     "Turn the volume up, louder."
     sh("input", "keyevent", "24")
     return "Volume up"
 
 
-@cactus.tool
+@tool
 def volume_down():
     "Turn the volume down, quieter."
     sh("input", "keyevent", "25")
     return "Volume down"
 
 
-@cactus.tool
+@tool
 def mute():
     "Mute the phone sound."
     sh("input", "keyevent", "164")
     return "Muted"
 
 
-@cactus.tool
+@tool
 def play_pause_music():
     "Play or pause the music or video that is playing."
     sh("input", "keyevent", "85")
     return "Play/pause sent"
 
 
-@cactus.tool
+@tool
 def next_track():
     "Skip to the next song or track."
     sh("input", "keyevent", "87")
     return "Next track"
 
 
-@cactus.tool
+@tool
 def previous_track():
     "Go back to the previous song or track."
     sh("input", "keyevent", "88")
@@ -140,35 +157,81 @@ def previous_track():
 
 # --- connectivity --------------------------------------------------------------
 
-@cactus.tool
+@tool
 def set_wifi(enabled: bool):
     "Turn Wi-Fi on or off."
     sh("svc", "wifi", "enable" if enabled else "disable")
     return f"Wi-Fi {'on' if enabled else 'off'}"
 
 
-@cactus.tool
+@tool
 def set_bluetooth(enabled: bool):
     "Turn Bluetooth on or off."
     sh("cmd", "bluetooth_manager", "enable" if enabled else "disable")
     return f"Bluetooth {'on' if enabled else 'off'}"
 
 
-@cactus.tool
+@tool
 def set_mobile_data(enabled: bool):
     "Turn mobile data on or off."
     sh("svc", "data", "enable" if enabled else "disable")
     return f"Mobile data {'on' if enabled else 'off'}"
 
 
-@cactus.tool
+def _torch_is_on() -> bool | None:
+    """Read the torch state from the camera service log (latest entry wins)."""
+    import re
+    log = sh("dumpsys", "media.camera", timeout=15)
+    states = re.findall(r"Torch for camera id \d+ turned (on|off)", log)
+    # dumpsys lists newest first on Samsung and stock Android 14+.
+    return None if not states else states[0] == "on"
+
+
+def _tap_qs_tile(words: tuple[str, ...]) -> bool:
+    """Open Quick Settings, tap the first tile whose label contains a word."""
+    import re
+    if "isKeyguardShowing=true" in sh("dumpsys", "window"):
+        raise RuntimeError("the phone is locked. Unlock it and try again")
+    import time
+    sh("input", "keyevent", "224")
+    try:
+        # The panel animates in, and Samsung sometimes shows only the top row
+        # first, so dump a few times and re-expand until the tile appears.
+        for _ in range(5):
+            sh("cmd", "statusbar", "expand-settings")
+            time.sleep(0.8)
+            sh("uiautomator", "dump", "/data/local/tmp/pp_ui.xml", timeout=20)
+            xml = sh("cat", "/data/local/tmp/pp_ui.xml")
+            for node in re.findall(r"<node [^>]*>", xml):
+                label = " ".join(re.findall(r'(?:text|content-desc)="([^"]*)"', node)).lower()
+                m = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+                if m and any(w in label for w in words) and 'clickable="true"' in node:
+                    x1, y1, x2, y2 = map(int, m.groups())
+                    sh("input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                    time.sleep(0.6)
+                    return True
+        return False
+    finally:
+        sh("cmd", "statusbar", "collapse")
+
+
+@tool
 def set_flashlight(enabled: bool):
     "Turn the flashlight / torch on or off."
-    sh("cmd", "statusbar", "torch", "on" if enabled else "off")
-    return f"Flashlight {'on' if enabled else 'off'}"
+    want = "on" if enabled else "off"
+    if _torch_is_on() == enabled:
+        return f"Flashlight is already {want}"
+    # Stock Android 13+ has a shell command; Samsung One UI doesn't.
+    sh("cmd", "statusbar", "torch", want)
+    if _torch_is_on() != enabled:
+        if not _tap_qs_tile(("flashlight", "torch")):
+            raise RuntimeError("couldn't find the Flashlight tile in Quick Settings")
+        if _torch_is_on() != enabled:
+            raise RuntimeError("tapped the Flashlight tile but the torch didn't change")
+    return f"Flashlight {want}"
 
 
-@cactus.tool
+@tool
 def set_do_not_disturb(enabled: bool):
     "Turn Do Not Disturb (silence notifications) on or off."
     sh("cmd", "notification", "set_dnd", "priority" if enabled else "off")
@@ -177,7 +240,7 @@ def set_do_not_disturb(enabled: bool):
 
 # --- apps & web ----------------------------------------------------------------
 
-@cactus.tool
+@tool
 def open_website(url: str):
     "Open a website or web page in the phone browser."
     if not url.startswith(("http://", "https://")):
@@ -186,14 +249,14 @@ def open_website(url: str):
     return f"Opened {url}"
 
 
-@cactus.tool
+@tool
 def search_web(query: str):
     "Search the web / Google for something."
     sh("am", "start", "-a", "android.intent.action.WEB_SEARCH", "--es", "query", query)
     return f"Searched for '{query}'"
 
 
-@cactus.tool
+@tool
 def open_app(app_name: str):
     "Open an app on the phone by its name, e.g. WhatsApp, camera, YouTube."
     return _launch(app_name)
@@ -217,14 +280,14 @@ def _launch(app_name: str) -> str:
     return f"Opened {app_name} ({pkg})"
 
 
-@cactus.tool
+@tool
 def go_home():
     "Go to the home screen."
     sh("input", "keyevent", "3")
     return "Home screen"
 
 
-@cactus.tool
+@tool
 def open_settings_page(page: str):
     "Open a settings page: wifi, bluetooth, display, sound, battery, apps, location."
     pages = {"wifi": "WIFI_SETTINGS", "bluetooth": "BLUETOOTH_SETTINGS",
@@ -251,7 +314,7 @@ def _media_between(start: datetime, end: datetime) -> list[str]:
     return sorted(hits)
 
 
-@cactus.tool
+@tool
 def count_photos(period: str):
     "Count photos taken in a period like 'today', 'yesterday', 'last weekend', 'last 7 days'."
     start, end = parse_period(period)
@@ -259,7 +322,7 @@ def count_photos(period: str):
     return f"{n} photos/videos from {period} ({start:%a %d %b} to {end:%a %d %b})"
 
 
-@cactus.tool
+@tool
 def make_album(name: str, period: str):
     "Make a photo album from photos taken in a period like 'last weekend', 'yesterday', 'last 3 days'."
     start, end = parse_period(period)
@@ -278,7 +341,7 @@ def make_album(name: str, period: str):
     return f"Album '{safe}' made with {len(files)} items in Pictures/{safe}"
 
 
-@cactus.tool
+@tool
 def find_files(query: str):
     "Find a file or document on the phone by name, e.g. lease, resume, ticket."
     out = sh("find", *FILE_DIRS, "-type", "f", "-iname", f"*{query}*", timeout=60)
@@ -288,7 +351,7 @@ def find_files(query: str):
     return f"Found {len(hits)}:\n" + "\n".join("  " + h for h in hits)
 
 
-@cactus.tool
+@tool
 def open_file(query: str):
     "Open a file on the phone by name, e.g. open the lease PDF."
     out = sh("find", *FILE_DIRS, "-type", "f", "-iname", f"*{query}*", timeout=60)
@@ -310,14 +373,14 @@ def open_file(query: str):
 
 # --- calls, messages, alarms (open the app; you tap send/call) --------------------
 
-@cactus.tool
+@tool
 def call_number(number: str):
     "Open the dialer with a phone number ready to call."
     sh("am", "start", "-a", "android.intent.action.DIAL", "-d", f"tel:{number}")
     return f"Dialer ready with {number}. Tap call on the phone."
 
 
-@cactus.tool
+@tool
 def text_message(number: str, message: str):
     "Write an SMS text message to a phone number."
     sh("am", "start", "-a", "android.intent.action.SENDTO", "-d", f"sms:{number}",
@@ -325,7 +388,7 @@ def text_message(number: str, message: str):
     return f"SMS draft to {number} open. Tap send on the phone."
 
 
-@cactus.tool
+@tool
 def set_alarm(hour: int, minute: int):
     "Set an alarm for a time, hour in 24-hour format."
     sh("am", "start", "-a", "android.intent.action.SET_ALARM",
@@ -335,7 +398,7 @@ def set_alarm(hour: int, minute: int):
     return f"Alarm set for {int(hour):02d}:{int(minute):02d}"
 
 
-@cactus.tool
+@tool
 def set_timer(minutes: int):
     "Start a countdown timer for some minutes."
     sh("am", "start", "-a", "android.intent.action.SET_TIMER",
@@ -346,7 +409,7 @@ def set_timer(minutes: int):
 
 # --- info -----------------------------------------------------------------------
 
-@cactus.tool
+@tool
 def battery_status():
     "Check the battery level and whether the phone is charging."
     info = {}
@@ -358,7 +421,7 @@ def battery_status():
     return f"Battery {info.get('level', '?')}%, {charging}"
 
 
-@cactus.tool
+@tool
 def device_info():
     "Show the phone model, Android version and storage space."
     model = sh("getprop", "ro.product.model")
@@ -367,7 +430,4 @@ def device_info():
     return f"{model}, Android {ver}, storage {df[2]} used of {df[1]} ({df[4]})"
 
 
-ALL_TOOLS = [v for v in list(globals().values())
-             if callable(v) and getattr(v, "__module__", None) == __name__
-             and not getattr(v, "__name__", "_").startswith("_")
-             and v.__name__ not in ("adb", "sh", "parse_period")]
+ALL_TOOLS = [v for v in list(globals().values()) if hasattr(v, "_cactus_tool")]

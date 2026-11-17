@@ -55,7 +55,8 @@ def _run_calls(calls: list[dict], by_name: dict) -> None:
         try:
             result = fn(**c.get("arguments", {}))
             print(f"{GREEN}✓ {result}{RESET}")
-        except (AdbError, ValueError, TypeError) as e:
+        except Exception as e:  # report and keep the session alive
+
             print(f"{RED}✗ {c['name']} failed: {e}{RESET}")
 
 
@@ -112,7 +113,9 @@ def main(argv: list[str] | None = None) -> int:
     model = sh("getprop", "ro.product.model")
 
     print(f"{DIM}Loading Needle 3 …{RESET}", end="\r", flush=True)
-    import cactus
+    from .phone_model import ON_ANDROID
+    if ON_ANDROID:
+        a.on_phone = True  # Termux: no cactus wheel, use the native runner
     from .tools import ALL_TOOLS
     by_name = {t.__name__: t for t in ALL_TOOLS}
     state = {"auto_yes": a.yes, "debug": a.debug}
@@ -125,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         engine = PhoneNeedle(ALL_TOOLS)
         where = "Needle 3 running on the phone"
     else:
+        import cactus
         engine = cactus.Cactus(tools=ALL_TOOLS, system=system, stateless=True)
         where = "Needle 3 on this computer"
     with engine as agent:

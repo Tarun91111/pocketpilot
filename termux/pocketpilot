@@ -1,0 +1,33 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# PocketPilot launcher for Termux.
+# Connects adb to this phone over Wireless debugging, then starts PocketPilot.
+# The connect port changes whenever Wireless debugging restarts, so the last
+# working port is saved and you're asked for a new one when it stops working.
+
+PP_HOME="$HOME/.pocketpilot"
+PORT_FILE="$PP_HOME/adb_port"
+mkdir -p "$PP_HOME"
+
+connected() { adb devices 2>/dev/null | grep -q -w "device$"; }
+
+if ! connected; then
+  # Wireless debugging also listens on localhost, which survives Wi-Fi IP changes.
+  ip=127.0.0.1
+  port=$(cat "$PORT_FILE" 2>/dev/null)
+  [ -n "$port" ] && timeout 6 adb connect "$ip:$port" >/dev/null 2>&1
+  if ! connected; then
+    echo "Open Settings > Developer options > Wireless debugging."
+    echo "Under 'IP address & port' it shows something like 192.168.1.8:12345."
+    read -r -p "Type the port number: " port
+    timeout 6 adb connect "$ip:$port" || true
+  fi
+  if ! connected; then
+    echo "Couldn't connect. Is Wireless debugging on, and was this phone paired?"
+    echo "To pair: Wireless debugging > Pair device with pairing code, then run"
+    echo "  adb pair $ip:<pairing-port> <code>"
+    exit 1
+  fi
+  echo "$port" > "$PORT_FILE"
+fi
+
+cd "$PP_HOME" && exec python -m pocketpilot "$@"

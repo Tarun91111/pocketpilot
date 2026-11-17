@@ -58,6 +58,21 @@ This runs Needle 3 on the phone's own CPU instead of your computer, using Cactus
 
 Wireless works too: `adb tcpip 5555`, then `adb connect <phone-ip>:5555`.
 
+### Run everything on the phone (Termux, no PC)
+
+1. Install [Termux](https://github.com/termux/termux-app/releases) (GitHub or F-Droid build, matching your Termux:API if you have it).
+2. In Termux: `pkg upgrade -y && pkg install -y python android-tools git`
+3. Install PocketPilot:
+   ```sh
+   git clone https://github.com/Tarun91111/pocketpilot ~/.pocketpilot/src
+   cp -r ~/.pocketpilot/src/pocketpilot ~/.pocketpilot/
+   install -m 755 ~/.pocketpilot/src/termux/pocketpilot $PREFIX/bin/pocketpilot
+   ```
+4. Turn on **Settings > Developer options > Wireless debugging**, tap **Pair device with pairing code**, and in Termux (split screen helps) run `adb pair <ip>:<port> <code>`. You only pair once.
+5. Run `pocketpilot`. The first time, it asks for the port shown under *IP address & port* on the Wireless debugging screen, and remembers it.
+
+Inside Termux, PocketPilot downloads Cactus's native Android runner and Needle 3 (about 37 MB total) to `~/.pocketpilot` and runs the model on the phone. The `cactus-compute` Python package isn't needed there. The connect port changes when Wireless debugging restarts, so the launcher asks again when the saved one stops working.
+
 ## How it works
 
 Each phone action is a Python function in [`pocketpilot/tools.py`](pocketpilot/tools.py) with a plain-English docstring. Needle 3 reads those docstrings, picks one or more functions, and fills in their arguments. PocketPilot runs them with `adb shell`, quoting every argument.
