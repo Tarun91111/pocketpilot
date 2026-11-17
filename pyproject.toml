@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pocketpilot"
+version = "0.1.0"
+description = "Control your Android phone from the terminal in plain English, with Cactus Needle 3 running locally."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+dependencies = ["cactus-compute>=4.2"]
+keywords = ["android", "adb", "assistant", "needle", "cactus", "tool-calling", "cli"]
+
+[project.scripts]
+pocketpilot = "pocketpilot.cli:main"
+
+[tool.setuptools]
+packages = ["pocketpilot"]
