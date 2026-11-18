@@ -6,3 +6,5 @@ dist/
 screenshot_*.png
 .claude/
 android/
+pocketpilot-app/
+CLAUDE.md
